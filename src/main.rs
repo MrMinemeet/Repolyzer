@@ -75,10 +75,32 @@ fn parse_args() -> AppArgs {
         }
     }
 
+    // ----------------- Retrieve path from args
 
-    // TODO: Retrieve path from args
-
-    
+    // Filter out any argument that is not the first one and does not start with a '-'
+    let repository_path = args.iter().skip(1).find(|&arg| !arg.starts_with('-'));
+    if let Some(repository_path) = repository_path {
+        if repository_path.starts_with("http") {
+            // Remote HTTP(s) URL
+            let url: Url = Url::parse(repository_path).expect("Could not detect valid URL");
+            app_args.location = GitLocation::Remote(url);
+        } else if repository_path.starts_with("git@") {
+            // Remote SSH URL
+            println!("The provided path seems to be using SSH, which is not supported yet!");
+            exit(2);
+        } else {
+            // Assume a local path then
+            let local_path: PathBuf = PathBuf::from(repository_path);
+            if !local_path.exists() || !local_path.is_dir() {
+                println!("The provided path either does not exist, or is not a directory!");
+                exit(2);
+            }
+            app_args.location = GitLocation::Local(local_path);
+        }
+    } else {
+        println!("No path provided!");
+        exit(2);
+    }
     
     return app_args;
 }
