@@ -1,0 +1,15 @@
+[package]
+name = "repolyzer"
+authors = ["Alexander Voglsperger <alex@wtf-my-code.works>"]
+version = "0.1.0"
+edition = "2021"
+description = "Git Repositry analyzer written in Rust for MissingSemester as exercise 1"
+readme = "README.md"
+repository = "https://github.com/MrMinemeet/Repolyzer"
+license-file = "LICENSE"
+keywords = ["git", "analyzer"]
+categories = ["command-line-utilities"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
