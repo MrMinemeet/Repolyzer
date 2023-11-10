@@ -1,4 +1,6 @@
 use std::{path::PathBuf, process::exit};
+use std::time::{SystemTime, UNIX_EPOCH};
+use git2::Repository;
 use url::Url;
 
 const HELP: &str = "Usage: repolyzer [OPTIONS] <PATH>
@@ -32,11 +34,41 @@ struct AppArgs {
     weekday_stats: bool,
 }
 
-
 fn main() {
     println!("Hello, world!");
 
-    let app_args = parse_args();
+    let app_args: AppArgs = parse_args();
+    let repository: Repository = load_repository(&app_args.location);
+}
+
+/// Downloads or load the repository depending on the type of location
+fn load_repository(location: &GitLocation) -> Repository {
+    if let GitLocation::Local(path) = location {
+        let repo = Repository::open(path);
+        if repo.is_err() {
+            println!("Could not open the local repository!");
+            exit(2);
+        }
+        return repo.unwrap();
+    } else if let GitLocation::Remote(url) = location {
+        let mut temp_dir = std::env::temp_dir();
+        temp_dir.push("repolyzer");
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards!")
+            .as_nanos().to_string();
+        temp_dir.push(timestamp);
+
+        let repo = Repository::clone(url.as_str(), temp_dir);
+        if repo.is_err() {
+            println!("Failed to clone and open repository!");
+            exit(2);
+        }
+        return repo.unwrap();
+    } else {
+        println!("Unknown Git Location!");
+        exit(3);
+    }
 }
 
 /// Parses the programm arguments in order to get the location and other flags.
