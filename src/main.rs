@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::{path::PathBuf, process::exit};
 use std::time::{SystemTime, UNIX_EPOCH};
 use git2::Repository;
@@ -34,11 +35,23 @@ struct AppArgs {
     weekday_stats: bool,
 }
 
+struct RepositoryStats {
+    commit_count: usize,
+    contributors: HashSet<String>
+}
+
 fn main() {
     println!("Hello, world!");
 
     let app_args: AppArgs = parse_args();
     let repository: Repository = load_repository(&app_args.location);
+
+    let stats = gather_stats(repository);
+
+
+    if app_args.general_overview {
+        print_general_overview(&stats)
+    }
 }
 
 /// Downloads or load the repository depending on the type of location
@@ -135,4 +148,47 @@ fn parse_args() -> AppArgs {
     }
     
     return app_args;
+}
+
+fn gather_stats(repository: Repository) -> RepositoryStats {
+    let mut stats = RepositoryStats {
+        commit_count: 0,
+        contributors: HashSet::new(),
+    };
+
+    let mut revwalk = repository.revwalk()
+        .expect("Failed to get 'revwalk'");
+    revwalk.push_head()
+        .expect("Failed to push HEAD!");
+
+    // Loop over all commit_ids with the help of revwalker
+    for commit_id in revwalk {
+        let commit_id = commit_id
+            .expect("Failed to get commit ID");
+        let commit = repository.find_commit(commit_id)
+            .expect("Could not find commit");
+
+        // A commit was found
+        stats.commit_count += 1;
+
+        // Add contributor to hashset
+        {
+            let author = commit.author();
+            let author =  author.name()
+            .expect("Could not retrieve name of an author");
+            stats.contributors.insert(author.to_string());
+        }
+
+    }
+
+
+    return stats;
+}
+
+fn print_general_overview(stats: &RepositoryStats) {
+    println!("-------------------------------------");
+    println!("Overall commit stats:");
+    println!("Commit amount ......... {}", stats.commit_count);
+    println!("Contributor amount .... {}", stats.contributors.len());
+    println!("-------------------------------------");
 }
