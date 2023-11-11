@@ -15,4 +15,5 @@ categories = ["command-line-utilities"]
 [dependencies]
 chrono = "0.4.31"
 git2 = "0.18.1"
+piechart = "1.0.0"
 url = "2.4.1"
