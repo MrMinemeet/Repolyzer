@@ -67,6 +67,9 @@ struct RepositoryStats {
     current_commit_streak: usize,
     max_commits_a_day: usize,
     commits_per_day_last_year: [usize; 365],
+
+    // Weekday stats
+    commits_per_weekday: [usize; 7],
 }
 
 fn main() {
@@ -91,6 +94,10 @@ fn main() {
 
     if app_args.commit_graph {
         print_commit_checker_board(&stats);
+    }
+
+    if app_args.weekday_stats {
+        print_weekday_stats(&stats);
     }
 }
 
@@ -219,6 +226,8 @@ fn gather_stats(repository: Repository, app_args: &AppArgs) -> RepositoryStats {
         current_commit_streak: 0,
         max_commits_a_day: 0,
         commits_per_day_last_year: [0; 365],
+
+        commits_per_weekday: [0; 7],
     };
 
     let mut revwalk = repository.revwalk()
@@ -287,6 +296,12 @@ fn gather_stats(repository: Repository, app_args: &AppArgs) -> RepositoryStats {
                 let day_of_year = (commit_time / SECONDS_PER_DAY as i64) % 365;
                 stats.commits_per_day_last_year[day_of_year as usize] += 1;
             }
+        }
+
+        if app_args.weekday_stats {
+            // Gather commits per weekday
+            let weekday = DT::from_timestamp(commit_time, 0).unwrap().weekday();
+            stats.commits_per_weekday[weekday.num_days_from_monday() as usize] += 1;
         }
     }
 
@@ -390,6 +405,28 @@ fn print_commit_checker_board(stats: &RepositoryStats) {
     println!("║ Sat\t{}", calculate_day_commit_graph(&stats, chrono::Weekday::Sat, &distribution));
     println!("║ Sun\t{}", calculate_day_commit_graph(&stats, chrono::Weekday::Sun, &distribution));
     println!("╚═══════════════════════════════════════════════════════════════════════════════════════════════════════════════");
+}
+
+fn print_weekday_stats(stats: &RepositoryStats) {
+    // Limit to 20 bars per weekday
+    let max_commits = stats.commits_per_weekday.iter().max().unwrap();
+
+    println!("-------------------------------------");
+    println!("Commits per weekday:");
+    for i in 0..7 {
+       let percentage = (stats.commits_per_weekday[i] as f64 / *max_commits as f64 * 20.0) as usize;
+       let weekday = match i {
+            0 => "Mon",
+            1 => "Tue",
+            2 => "Wed",
+            3 => "Thu",
+            4 => "Fri",
+            5 => "Sat",
+            6 => "Sun",
+            _ => "???", // Should/Can never happen
+        };
+        println!("\t{}\t{}\t|{}", weekday, stats.commits_per_weekday[i], "█".repeat(percentage));
+    }
 }
 
 /// Calculates the distribution borders for the commit checker board
