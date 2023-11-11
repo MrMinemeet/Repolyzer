@@ -18,7 +18,7 @@ OPTIONS:
     -p, --pie-chart           Enable the pie chart
     -w, --week-day-stats     *Enable the week day stats
 
-Options marked with a '*' may take more time to compute, depending on the size of the repository.
+Options marked with a '*' may take more time and resources to compute, depending on the size of the repository.
 
 PATH:
     The path to the Git repository to analyze. This can be a local path or a remote URL.
