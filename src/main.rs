@@ -26,7 +26,7 @@ PATH:
     If a remote URL is provided, the repository will be cloned to a temporary directory.";
 const UNKNOWN_AUTHOR: &str = ">UNKNOWN<";
 const SECONDS_PER_YEAR: u64 = 31_536_000;
-const SECONDS_PER_DAY: u32 = 86_400;
+const SECONDS_PER_DAY: u64 = 86_400;
 const CHECKERBOARD_SYMBOL_AMOUNT: usize = 5;
 // None, low, more, even more, a lot
 const SYMBOLS: [char; CHECKERBOARD_SYMBOL_AMOUNT] = [ '~', '·', '▪', '●', '⬟'];
@@ -53,7 +53,7 @@ struct AppArgs {
 struct RepositoryStats {
     // General stats
     commit_count: usize,
-    last_commit: i64,
+    last_commit: u64,
     contributors: HashMap<String, u64>,
 
     // Extended stats
@@ -230,6 +230,9 @@ fn gather_stats(repository: Repository, app_args: &AppArgs) -> RepositoryStats {
         commits_per_weekday: [0; 7],
     };
 
+    let mut prev_commit_time: u64 = 0;
+    let mut current_streak: usize = 0;
+
     let mut revwalk = repository.revwalk()
         .expect("Failed to get 'revwalk'");
     revwalk.push_head()
@@ -259,7 +262,7 @@ fn gather_stats(repository: Repository, app_args: &AppArgs) -> RepositoryStats {
             }
         }
 
-        let commit_time = commit.time().seconds();
+        let commit_time = commit.time().seconds() as u64;
         if stats.last_commit < commit_time {
             stats.last_commit = commit_time;
         }
@@ -288,20 +291,53 @@ fn gather_stats(repository: Repository, app_args: &AppArgs) -> RepositoryStats {
         }
 
         if app_args.commit_graph {
-            // TODO: calculate lastcommit, streak and things
-
             // Gather commits per day
-            if commit_time as u64 > current_time - SECONDS_PER_YEAR {
+            if commit_time > current_time - SECONDS_PER_YEAR {
                 // Commit was made in the last year
-                let day_of_year = (commit_time / SECONDS_PER_DAY as i64) % 365;
+                let day_of_year = (commit_time / SECONDS_PER_DAY) % 365;
                 stats.commits_per_day_last_year[day_of_year as usize] += 1;
+            }
+
+            // Check if the current commit was made within the last 24 hours of the previous commit
+            if prev_commit_time != 0 && commit_time > prev_commit_time - SECONDS_PER_DAY {
+                current_streak += 1;
+            } else {
+                if current_streak > stats.longest_commit_streak {
+                    stats.current_commit_streak = current_streak;
+                }
+                current_streak = 0;
+                prev_commit_time = commit_time;
+                
             }
         }
 
         if app_args.weekday_stats {
             // Gather commits per weekday
-            let weekday = DT::from_timestamp(commit_time, 0).unwrap().weekday();
+            let weekday = DT::from_timestamp(commit_time as i64, 0).unwrap().weekday();
             stats.commits_per_weekday[weekday.num_days_from_monday() as usize] += 1;
+        }
+    }
+
+    if app_args.commit_graph {
+        // Calculate max commits a day
+        stats.max_commits_a_day = *stats.commits_per_day_last_year.iter().max().unwrap();
+
+        // Calculate commits in the last year
+        for i in 0..365 {
+            stats.commits_last_year += stats.commits_per_day_last_year[i];
+        }
+
+        // Calculate longest streak
+        current_streak = 0;
+        for i in 0..365 {
+            if stats.commits_per_day_last_year[i] > 0 {
+                current_streak += 1;
+            } else {
+                if current_streak > stats.longest_commit_streak {
+                    stats.longest_commit_streak = current_streak;
+                }
+                current_streak = 0;
+            }
         }
     }
 
@@ -310,7 +346,7 @@ fn gather_stats(repository: Repository, app_args: &AppArgs) -> RepositoryStats {
 }
 
 fn print_general_overview(stats: &RepositoryStats) {
-    let dt = DT::from_timestamp(stats.last_commit, 0).unwrap();
+    let dt = DT::from_timestamp(stats.last_commit as i64, 0).unwrap();
 
     println!("-------------------------------------");
     println!("Overall commit stats:");
@@ -321,7 +357,7 @@ fn print_general_overview(stats: &RepositoryStats) {
 }
 
 fn print_extended_overview(stats: &RepositoryStats) {
-    let dt = DT::from_timestamp(stats.last_commit, 0).unwrap();
+    let dt = DT::from_timestamp(stats.last_commit as i64, 0).unwrap();
     println!("-------------------------------------");
     println!("Overall commit stats:");
     println!("Commit amount ......... {}", stats.commit_count);
