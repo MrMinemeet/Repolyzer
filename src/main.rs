@@ -13,10 +13,13 @@ const HELP: &str = "Usage: repolyzer [OPTIONS] <PATH>
 Analyze a Git repository and display statistics about it.
 
 OPTIONS:
-    -c, --commit-graph     Enable the commit graph (similar to GitHub's)
-    -n, --no-overview      Disable the general overview
-    -p, --pie-chart        Enable the pie chart
-    -w, --week-day-stats   Enable the week day stats (May take a while to compute)
+    -c, --commit-graph        Enable the commit graph (similar to GitHub's)
+    -e, --extended-overview  *Enables the extended overview instead of the general one
+    -n, --no-overview         Disable the general overview
+    -p, --pie-chart           Enable the pie chart
+    -w, --week-day-stats     *Enable the week day stats
+
+Options marked with a '*' may take more time to compute, depending on the size of the repository.
 
 PATH:
     The path to the Git repository to analyze. This can be a local path or a remote URL.
@@ -36,15 +39,22 @@ struct AppArgs {
 
     // Flags
     general_overview: bool,
+    extended_overview: bool,
     pie_chart: bool,
     commit_graph: bool,
     weekday_stats: bool,
 }
 
 struct RepositoryStats {
+    // General stats
     commit_count: usize,
     last_commit: i64,
-    contributors: HashMap<String, u64>
+    contributors: HashMap<String, u64>,
+
+    // Extended stats
+    total_files_changes: usize,
+    total_lines_inserted: usize,
+    total_lines_removed: usize,
 }
 
 fn main() {
@@ -53,11 +63,14 @@ fn main() {
     let app_args: AppArgs = parse_args();
     let repository: Repository = load_repository(&app_args.location);
 
-    let stats = gather_stats(repository);
+    let stats = gather_stats(repository, &app_args);
 
-
-    if app_args.general_overview {
+    if app_args.general_overview && !app_args.extended_overview {
         print_general_overview(&stats)
+    }
+
+    if app_args.extended_overview {
+        print_extended_overview(&stats);
     }
 
     if app_args.pie_chart {
@@ -109,6 +122,7 @@ fn parse_args() -> AppArgs {
         location: GitLocation::Local(PathBuf::from("")),
 
         general_overview: true,
+        extended_overview: false,
         pie_chart: false,
         commit_graph: false,
         weekday_stats: false
@@ -118,10 +132,11 @@ fn parse_args() -> AppArgs {
     for arg in &args {
         if arg.starts_with('-') {
             match arg.as_str() {
+                "-c" | "--commit-graph" => app_args.commit_graph = true,
+                "-e" | "--extended-overview" => app_args.extended_overview = true,
                 "-n" | "--no-overview" => app_args.general_overview = false,
                 "-p" | "--pie-chart" => app_args.pie_chart = true,
                 "-w" | "--week-day-stats" => app_args.weekday_stats = true,
-                "-c" | "--commit-graph" => app_args.commit_graph = true,
                 _ => {
                     println!("Unknown argument: {}", arg);
                     println!("{}", HELP);
@@ -161,11 +176,21 @@ fn parse_args() -> AppArgs {
     return app_args;
 }
 
-fn gather_stats(repository: Repository) -> RepositoryStats {
+fn gather_stats(repository: Repository, app_args: &AppArgs) -> RepositoryStats {
+    let mut diff_options = git2::DiffOptions::new();
+    diff_options.include_unmodified(false);
+    diff_options.include_untracked(false);
+    diff_options.ignore_submodules(true);
+    diff_options.ignore_blank_lines(true);
+
     let mut stats = RepositoryStats {
         commit_count: 0,
         last_commit: 0,
         contributors: HashMap::new(),
+
+        total_files_changes: 0,
+        total_lines_inserted: 0,
+        total_lines_removed: 0,
     };
 
     let mut revwalk = repository.revwalk()
@@ -202,6 +227,27 @@ fn gather_stats(repository: Repository) -> RepositoryStats {
             stats.last_commit = commit_time;
         }
 
+        // Collect stats for extended overview
+        if app_args.extended_overview {
+            // TODO: Optimize or multithread this
+            let parent = commit.parent(0);
+            if parent.is_err() {
+                // This is the first commit, so there is no parent
+                continue;
+            }
+            let diff = repository.diff_tree_to_tree(
+                Some(&parent.unwrap().tree().unwrap()),
+                //Some(&p_tree.as_ref().unwrap()), 
+                Some(&commit.tree().unwrap()),
+                    None)
+                .expect("Failed to get diff");
+            let diff_stats = diff.stats()
+                .expect("Failed to get stats");
+
+            stats.total_files_changes += diff.deltas().count();
+            stats.total_lines_inserted += diff_stats.insertions();
+            stats.total_lines_removed += diff_stats.deletions();
+        }
     }
 
 
@@ -216,6 +262,21 @@ fn print_general_overview(stats: &RepositoryStats) {
     println!("Commit amount ......... {}", stats.commit_count);
     println!("Last commit ........... {}" , dt.format("%d-%m-%Y %H:%M:%S"));
     println!("Contributor amount .... {}", stats.contributors.len());
+    println!("-------------------------------------");
+}
+
+fn print_extended_overview(stats: &RepositoryStats) {
+    let dt = DateTime::from_timestamp(stats.last_commit, 0).unwrap();
+    println!("-------------------------------------");
+    println!("Overall commit stats:");
+    println!("Commit amount ......... {}", stats.commit_count);
+    println!("Last commit ........... {}" , dt.format("%d-%m-%Y %H:%M:%S"));
+    println!("Contributor amount .... {}", stats.contributors.len());
+    println!("Files changed ......... {}", stats.total_files_changes);
+    println!("Lines inserted......... {}", stats.total_lines_inserted);
+    println!("Lines removed ......... {}", stats.total_lines_removed);
+    println!("Total lines (delta) ... {}", stats.total_lines_inserted - stats.total_lines_removed);
+    println!("Add./Del. ratio........ {:.2}", stats.total_lines_inserted as f64 / stats.total_lines_removed as f64);
     println!("-------------------------------------");
 }
 
