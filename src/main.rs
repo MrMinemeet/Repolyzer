@@ -4,6 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use git2::Repository;
 use url::Url;
 
+// ------------------------- Constants
 const HELP: &str = "Usage: repolyzer [OPTIONS] <PATH>
 
 Analyze a Git repository and display statistics about it.
@@ -17,6 +18,8 @@ OPTIONS:
 PATH:
     The path to the Git repository to analyze. This can be a local path or a remote URL.
     If a remote URL is provided, the repository will be cloned to a temporary directory.";
+const UNKNOWN_AUTHOR: &str = ">UNKNOWN<";
+// ------------------------- 
 
 /// Holds the location for a given local or remote git repository
 enum GitLocation {
@@ -174,9 +177,12 @@ fn gather_stats(repository: Repository) -> RepositoryStats {
         // Add contributor to hashset
         {
             let author = commit.author();
-            let author =  author.name()
-            .expect("Could not retrieve name of an author");
-            stats.contributors.insert(author.to_string());
+            let author =  author.name();
+            if let Some(author) = author {
+                stats.contributors.insert(author.to_string());
+            } else {
+                stats.contributors.insert(UNKNOWN_AUTHOR.to_string());
+            }
         }
 
     }
