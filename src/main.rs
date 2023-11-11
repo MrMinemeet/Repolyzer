@@ -279,6 +279,8 @@ fn gather_stats(repository: Repository, app_args: &AppArgs) -> RepositoryStats {
         }
 
         if app_args.commit_graph {
+            // TODO: calculate lastcommit, streak and things
+
             // Gather commits per day
             if commit_time as u64 > current_time - SECONDS_PER_YEAR {
                 // Commit was made in the last year
