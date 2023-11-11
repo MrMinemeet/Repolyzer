@@ -1,9 +1,10 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::{path::PathBuf, process::exit};
 use std::time::{SystemTime, UNIX_EPOCH};
 use git2::Repository;
 use url::Url;
-use chrono::{DateTime};
+use chrono::DateTime;
+use piechart::{Chart, Color, Data};
 
 
 // ------------------------- Constants
@@ -43,7 +44,7 @@ struct AppArgs {
 struct RepositoryStats {
     commit_count: usize,
     last_commit: i64,
-    contributors: HashSet<String>
+    contributors: HashMap<String, u64>
 }
 
 fn main() {
@@ -57,6 +58,10 @@ fn main() {
 
     if app_args.general_overview {
         print_general_overview(&stats)
+    }
+
+    if app_args.pie_chart {
+        print_pie_chart(&stats);
     }
 }
 
@@ -160,7 +165,7 @@ fn gather_stats(repository: Repository) -> RepositoryStats {
     let mut stats = RepositoryStats {
         commit_count: 0,
         last_commit: 0,
-        contributors: HashSet::new(),
+        contributors: HashMap::new(),
     };
 
     let mut revwalk = repository.revwalk()
@@ -179,14 +184,16 @@ fn gather_stats(repository: Repository) -> RepositoryStats {
         // A commit was found
         stats.commit_count += 1;
 
-        // Add contributor to hashset
+        // Add contributor to hashmap and update commit amount
         {
             let author = commit.author();
             let author =  author.name();
-            if let Some(author) = author {
-                stats.contributors.insert(author.to_string());
+            let author = if author.is_some() { author.unwrap() } else { UNKNOWN_AUTHOR };
+
+            if stats.contributors.contains_key(&author.to_string()) {
+                stats.contributors.insert(author.to_string(), stats.contributors.get(&author.to_string()).unwrap() + 1);
             } else {
-                stats.contributors.insert(UNKNOWN_AUTHOR.to_string());
+                stats.contributors.insert(author.to_string(), 1);
             }
         }
 
@@ -210,4 +217,58 @@ fn print_general_overview(stats: &RepositoryStats) {
     println!("Last commit ........... {}" , dt.format("%d-%m-%Y %H:%M:%S"));
     println!("Contributor amount .... {}", stats.contributors.len());
     println!("-------------------------------------");
+}
+
+fn print_pie_chart(stats: &RepositoryStats) {
+    const NAMED_COMMITS_IN_CHART: usize = 5;
+    const SYMBOLS: [char; 6] = [ '•', '▪', '▴', '◆', '⬟', '◆' ];
+    println!("Commit pie chart:");
+
+    let colors = [
+        Color::RGB(255, 99, 132),   // Red
+        Color::RGB(54, 162, 235),   // Blue
+        Color::RGB(255, 206, 86),   // Yellow
+        Color::RGB(75, 192, 192),   // Teal
+        Color::RGB(153, 102, 255),  // Purple
+        Color::RGB(255, 159, 64),   // Orange
+    ];
+
+    // Sort descending by commit amount
+    let mut top_contributors: Vec<(&String, &u64)> = stats.contributors.iter().collect();
+    top_contributors.sort_by(|a, b| b.1.cmp(a.1));
+    top_contributors.truncate(NAMED_COMMITS_IN_CHART);
+
+    // Add "Others" if there are more than NAMED_COMMITS_IN_CHART contributors
+    let mut others = 0;
+    for (_, commits) in stats.contributors.iter().skip(NAMED_COMMITS_IN_CHART) {
+        others += commits;
+    }
+    let others_contributors = (&"Others".to_string(), &others);
+    if others > 0 {
+        top_contributors.push(others_contributors);
+    }
+
+    // Create data vector
+    let mut top_data: Vec<Data> = Vec::new();
+    for i in 0..top_contributors.len() {
+        let (name, commits) = top_contributors[i];
+        let data = Data {
+            label: name.to_string(),
+            value: *commits as f32,
+            color: Some(colors[i].into()),
+            fill: SYMBOLS[i % SYMBOLS.len()],
+        };
+        top_data.push(data);
+    }
+
+    // Create chart
+    Chart::new()
+        .radius(9)
+        .aspect_ratio(3)
+        .legend(true)
+        .draw(&top_data);
+    
+
+
+
 }
