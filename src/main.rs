@@ -3,7 +3,7 @@ use std::{path::PathBuf, process::exit};
 use std::time::{SystemTime, UNIX_EPOCH};
 use git2::Repository;
 use url::Url;
-use chrono::DateTime;
+use chrono::{DateTime as DT, Datelike as DL, Local};
 use piechart::{Chart, Color, Data};
 
 
@@ -25,6 +25,11 @@ PATH:
     The path to the Git repository to analyze. This can be a local path or a remote URL.
     If a remote URL is provided, the repository will be cloned to a temporary directory.";
 const UNKNOWN_AUTHOR: &str = ">UNKNOWN<";
+const SECONDS_PER_YEAR: u64 = 31_536_000;
+const SECONDS_PER_DAY: u32 = 86_400;
+const CHECKERBOARD_SYMBOL_AMOUNT: usize = 5;
+// None, low, more, even more, a lot
+const SYMBOLS: [char; CHECKERBOARD_SYMBOL_AMOUNT] = [ '~', '·', '▪', '●', '⬟'];
 // ------------------------- 
 
 /// Holds the location for a given local or remote git repository
@@ -55,6 +60,13 @@ struct RepositoryStats {
     total_files_changes: usize,
     total_lines_inserted: usize,
     total_lines_removed: usize,
+
+    // Checkboard stats
+    commits_last_year: usize,
+    longest_commit_streak: usize,
+    current_commit_streak: usize,
+    max_commits_a_day: usize,
+    commits_per_day_last_year: [usize; 365],
 }
 
 fn main() {
@@ -75,6 +87,10 @@ fn main() {
 
     if app_args.pie_chart {
         print_pie_chart(&stats);
+    }
+
+    if app_args.commit_graph {
+        print_commit_checker_board(&stats);
     }
 }
 
@@ -183,6 +199,12 @@ fn gather_stats(repository: Repository, app_args: &AppArgs) -> RepositoryStats {
     diff_options.ignore_submodules(true);
     diff_options.ignore_blank_lines(true);
 
+
+    let current_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards")
+        .as_secs();
+
     let mut stats = RepositoryStats {
         commit_count: 0,
         last_commit: 0,
@@ -191,6 +213,12 @@ fn gather_stats(repository: Repository, app_args: &AppArgs) -> RepositoryStats {
         total_files_changes: 0,
         total_lines_inserted: 0,
         total_lines_removed: 0,
+
+        commits_last_year: 0,
+        longest_commit_streak: 0,
+        current_commit_streak: 0,
+        max_commits_a_day: 0,
+        commits_per_day_last_year: [0; 365],
     };
 
     let mut revwalk = repository.revwalk()
@@ -226,6 +254,7 @@ fn gather_stats(repository: Repository, app_args: &AppArgs) -> RepositoryStats {
         if stats.last_commit < commit_time {
             stats.last_commit = commit_time;
         }
+        
 
         // Collect stats for extended overview
         if app_args.extended_overview {
@@ -248,6 +277,15 @@ fn gather_stats(repository: Repository, app_args: &AppArgs) -> RepositoryStats {
             stats.total_lines_inserted += diff_stats.insertions();
             stats.total_lines_removed += diff_stats.deletions();
         }
+
+        if app_args.commit_graph {
+            // Gather commits per day
+            if commit_time as u64 > current_time - SECONDS_PER_YEAR {
+                // Commit was made in the last year
+                let day_of_year = (commit_time / SECONDS_PER_DAY as i64) % 365;
+                stats.commits_per_day_last_year[day_of_year as usize] += 1;
+            }
+        }
     }
 
 
@@ -255,7 +293,7 @@ fn gather_stats(repository: Repository, app_args: &AppArgs) -> RepositoryStats {
 }
 
 fn print_general_overview(stats: &RepositoryStats) {
-    let dt = DateTime::from_timestamp(stats.last_commit, 0).unwrap();
+    let dt = DT::from_timestamp(stats.last_commit, 0).unwrap();
 
     println!("-------------------------------------");
     println!("Overall commit stats:");
@@ -266,7 +304,7 @@ fn print_general_overview(stats: &RepositoryStats) {
 }
 
 fn print_extended_overview(stats: &RepositoryStats) {
-    let dt = DateTime::from_timestamp(stats.last_commit, 0).unwrap();
+    let dt = DT::from_timestamp(stats.last_commit, 0).unwrap();
     println!("-------------------------------------");
     println!("Overall commit stats:");
     println!("Commit amount ......... {}", stats.commit_count);
@@ -332,4 +370,98 @@ fn print_pie_chart(stats: &RepositoryStats) {
 
 
 
+}
+
+fn print_commit_checker_board(stats: &RepositoryStats) {
+    let distribution= calculate_symbol_distribution(&stats);
+
+    println!("╔═══════════════════════════════════════════════════════════════════════════════════════════════════════════════");
+    println!("║\tCommits in the last year: {} | Longest Streak: {} days | Current Streak: {} days | Max a day: {}"
+        , stats.commits_last_year, stats.longest_commit_streak, stats.current_commit_streak, stats.max_commits_a_day);
+    println!("╠═══════════════════════════════════════════════════════════════════════════════════════════════════════════════");
+    println!("║      Jan      Feb      Mar      Apr      May      Jun      Jul      Aug      Sep      Oct      Nov     Dec");
+    println!("║ Mon\t{}", calculate_day_commit_graph(&stats, chrono::Weekday::Mon, &distribution));
+    println!("║ Tue\t{}", calculate_day_commit_graph(&stats, chrono::Weekday::Tue, &distribution));
+    println!("║ Wed\t{}", calculate_day_commit_graph(&stats, chrono::Weekday::Wed, &distribution));
+    println!("║ Thu\t{}", calculate_day_commit_graph(&stats, chrono::Weekday::Thu, &distribution));
+    println!("║ Fri\t{}", calculate_day_commit_graph(&stats, chrono::Weekday::Fri, &distribution));
+    println!("║ Sat\t{}", calculate_day_commit_graph(&stats, chrono::Weekday::Sat, &distribution));
+    println!("║ Sun\t{}", calculate_day_commit_graph(&stats, chrono::Weekday::Sun, &distribution));
+    println!("╚═══════════════════════════════════════════════════════════════════════════════════════════════════════════════");
+}
+
+/// Calculates the distribution borders for the commit checker board
+fn calculate_symbol_distribution(stats: &RepositoryStats) -> [usize; CHECKERBOARD_SYMBOL_AMOUNT]  {
+    // Get the max commits a day
+    let mut max_commits_a_day = 0;
+    for commits in stats.commits_per_day_last_year.iter() {
+        if *commits > max_commits_a_day {
+            max_commits_a_day = *commits;
+        }
+    }
+
+    // Calculate the symbol distribution borders
+    let range_size = max_commits_a_day / CHECKERBOARD_SYMBOL_AMOUNT;
+    let low = range_size;
+    let more = range_size * 2;
+    let even_more = range_size * 3;
+    let a_lot = range_size * 4;
+
+    let distribution = [0, low, more, even_more, a_lot];
+
+
+    // Print distribution
+    println!("-------------------------------------");
+    print!("Distribution: ");
+    print!("{} = {} | ", SYMBOLS[0], distribution[0]);
+    for i in 1..distribution.len() - 1 {
+        print!("{} for <= {}, ", SYMBOLS[i], distribution[i]);
+    }
+    println!("{} for > {}", SYMBOLS[distribution.len() - 1], distribution[distribution.len() - 1]);
+    println!();
+
+    return distribution;
+}
+
+fn calculate_day_commit_graph(
+        stats: &RepositoryStats,
+        weekday: chrono::Weekday,
+        symbol_distr: &[usize; CHECKERBOARD_SYMBOL_AMOUNT]) -> String {
+
+    let today = Local::now();
+
+    let mut num_of_weekdays = 0;
+    for i in 0..365 {
+        let day = today - chrono::Duration::days(i);
+        if day.weekday() == weekday {
+            num_of_weekdays += 1;
+        }
+    }
+
+    let mut graph_line = String::new();
+    for i in 0..num_of_weekdays {
+        let day_index = 7 * i + weekday.num_days_from_monday() as usize;
+        if day_index >= 365 {
+            break;
+        }
+
+        let commits_on_day = stats.commits_per_day_last_year[day_index];
+
+        // Get symbol for this day
+        let mut symbol = ' ';
+        for j in 0..symbol_distr.len() {
+            if commits_on_day <= symbol_distr[j] {
+                symbol = SYMBOLS[j];
+                break;
+            }
+        }
+        if symbol == ' ' {
+            // If no symbol was found, use the last one (as it then is > symbol_distr[CHECKERBOARD_SYMBOL_AMOUNT - 1])
+            symbol = SYMBOLS[SYMBOLS.len() - 1];
+        }
+
+        graph_line.push(' ');
+        graph_line.push(symbol);
+    }
+    return graph_line;
 }
