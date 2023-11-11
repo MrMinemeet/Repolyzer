@@ -3,6 +3,8 @@ use std::{path::PathBuf, process::exit};
 use std::time::{SystemTime, UNIX_EPOCH};
 use git2::Repository;
 use url::Url;
+use chrono::{DateTime};
+
 
 // ------------------------- Constants
 const HELP: &str = "Usage: repolyzer [OPTIONS] <PATH>
@@ -40,6 +42,7 @@ struct AppArgs {
 
 struct RepositoryStats {
     commit_count: usize,
+    last_commit: i64,
     contributors: HashSet<String>
 }
 
@@ -156,6 +159,7 @@ fn parse_args() -> AppArgs {
 fn gather_stats(repository: Repository) -> RepositoryStats {
     let mut stats = RepositoryStats {
         commit_count: 0,
+        last_commit: 0,
         contributors: HashSet::new(),
     };
 
@@ -171,6 +175,7 @@ fn gather_stats(repository: Repository) -> RepositoryStats {
         let commit = repository.find_commit(commit_id)
             .expect("Could not find commit");
 
+    
         // A commit was found
         stats.commit_count += 1;
 
@@ -185,6 +190,11 @@ fn gather_stats(repository: Repository) -> RepositoryStats {
             }
         }
 
+        let commit_time = commit.time().seconds();
+        if stats.last_commit < commit_time {
+            stats.last_commit = commit_time;
+        }
+
     }
 
 
@@ -192,9 +202,12 @@ fn gather_stats(repository: Repository) -> RepositoryStats {
 }
 
 fn print_general_overview(stats: &RepositoryStats) {
+    let dt = DateTime::from_timestamp(stats.last_commit, 0).unwrap();
+
     println!("-------------------------------------");
     println!("Overall commit stats:");
     println!("Commit amount ......... {}", stats.commit_count);
+    println!("Last commit ........... {}" , dt.format("%d-%m-%Y %H:%M:%S"));
     println!("Contributor amount .... {}", stats.contributors.len());
     println!("-------------------------------------");
 }
