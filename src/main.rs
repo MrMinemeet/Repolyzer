@@ -1,11 +1,10 @@
-use std::collections::HashMap;
-use std::{path::PathBuf, process::exit};
-use std::time::{SystemTime, UNIX_EPOCH};
-use git2::Repository;
-use url::Url;
 use chrono::{DateTime as DT, Datelike as DL, Local};
+use git2::Repository;
 use piechart::{Chart, Color, Data};
-
+use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::{path::PathBuf, process::exit};
+use url::Url;
 
 // ------------------------- Constants
 const HELP: &str = "Usage: repolyzer [OPTIONS] <PATH>
@@ -29,16 +28,16 @@ const SECONDS_PER_YEAR: u64 = 31_536_000;
 const SECONDS_PER_DAY: u64 = 86_400;
 const CHECKERBOARD_SYMBOL_AMOUNT: usize = 5;
 // None, low, more, even more, a lot
-const SYMBOLS: [char; CHECKERBOARD_SYMBOL_AMOUNT] = [ '~', '·', '▪', '●', '⬟'];
-// ------------------------- 
+const SYMBOLS: [char; CHECKERBOARD_SYMBOL_AMOUNT] = ['~', '·', '▪', '●', '⬟'];
+// -------------------------
 
 /// Holds the location for a given local or remote git repository
 enum GitLocation {
     Local(PathBuf),
-    Remote(Url)
+    Remote(Url),
 }
 
-/// Holds parsed app argumnets
+/// Holds parsed app arguments
 struct AppArgs {
     location: GitLocation,
 
@@ -61,7 +60,7 @@ struct RepositoryStats {
     total_lines_inserted: usize,
     total_lines_removed: usize,
 
-    // Checkboard stats
+    // Checkerboard stats
     commits_last_year: usize,
     longest_commit_streak: usize,
     current_commit_streak: usize,
@@ -109,14 +108,15 @@ fn load_repository(location: &GitLocation) -> Repository {
             println!("Could not open the local repository!");
             exit(2);
         }
-        return repo.unwrap();
+        repo.unwrap()
     } else if let GitLocation::Remote(url) = location {
         let mut temp_dir = std::env::temp_dir();
         temp_dir.push("repolyzer");
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards!")
-            .as_nanos().to_string();
+            .as_nanos()
+            .to_string();
         temp_dir.push(timestamp);
 
         let repo = Repository::clone(url.as_str(), temp_dir);
@@ -124,14 +124,14 @@ fn load_repository(location: &GitLocation) -> Repository {
             println!("Failed to clone and open repository!");
             exit(2);
         }
-        return repo.unwrap();
+        repo.unwrap()
     } else {
         println!("Unknown Git Location!");
         exit(3);
     }
 }
 
-/// Parses the programm arguments in order to get the location and other flags.
+/// Parses the program arguments in order to get the location and other flags.
 fn parse_args() -> AppArgs {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
@@ -148,9 +148,9 @@ fn parse_args() -> AppArgs {
         extended_overview: false,
         pie_chart: false,
         commit_graph: false,
-        weekday_stats: false
+        weekday_stats: false,
     };
-    
+
     // ----------------- Parse flags
     for arg in &args {
         if arg.starts_with('-') {
@@ -195,8 +195,8 @@ fn parse_args() -> AppArgs {
         println!("No path provided!");
         exit(2);
     }
-    
-    return app_args;
+
+    app_args
 }
 
 fn gather_stats(repository: Repository, app_args: &AppArgs) -> RepositoryStats {
@@ -205,7 +205,6 @@ fn gather_stats(repository: Repository, app_args: &AppArgs) -> RepositoryStats {
     diff_options.include_untracked(false);
     diff_options.ignore_submodules(true);
     diff_options.ignore_blank_lines(true);
-
 
     let current_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -233,57 +232,58 @@ fn gather_stats(repository: Repository, app_args: &AppArgs) -> RepositoryStats {
     let mut prev_commit_time: u64 = 0;
     let mut current_streak: usize = 0;
 
-    let mut revwalk = repository.revwalk()
-        .expect("Failed to get 'revwalk'");
-    revwalk.push_head()
-        .expect("Failed to push HEAD!");
+    let mut revwalk = repository.revwalk().expect("Failed to get 'revwalk'");
+    revwalk.push_head().expect("Failed to push HEAD!");
 
-    // Loop over all commit_ids with the help of revwalker
+    // Loop over all commit_ids with the help of revwalk
     for commit_id in revwalk {
-        let commit_id = commit_id
-            .expect("Failed to get commit ID");
-        let commit = repository.find_commit(commit_id)
+        let commit_id = commit_id.expect("Failed to get commit ID");
+        let commit = repository
+            .find_commit(commit_id)
             .expect("Could not find commit");
 
-    
         // A commit was found
         stats.commit_count += 1;
 
         // Add contributor to hashmap and update commit amount
         {
             let author = commit.author();
-            let author =  author.name();
-            let author = if author.is_some() { author.unwrap() } else { UNKNOWN_AUTHOR };
-
-            if stats.contributors.contains_key(&author.to_string()) {
-                stats.contributors.insert(author.to_string(), stats.contributors.get(&author.to_string()).unwrap() + 1);
+            let author = author.name();
+            let author = if let Some(author) = author {
+                author
             } else {
-                stats.contributors.insert(author.to_string(), 1);
-            }
+                UNKNOWN_AUTHOR
+            };
+
+            stats.contributors.entry(author.to_string()).or_insert(0);
+            stats.contributors.insert(
+                author.to_string(),
+                stats.contributors.get(&author.to_string()).unwrap() + 1,
+            );
         }
 
         let commit_time = commit.time().seconds() as u64;
         if stats.last_commit < commit_time {
             stats.last_commit = commit_time;
         }
-        
 
         // Collect stats for extended overview
         if app_args.extended_overview {
-            // TODO: Optimize or multithread this
+            // TODO: Optimize or use multithreading for this
             let parent = commit.parent(0);
             if parent.is_err() {
                 // This is the first commit, so there is no parent
                 continue;
             }
-            let diff = repository.diff_tree_to_tree(
-                Some(&parent.unwrap().tree().unwrap()),
-                //Some(&p_tree.as_ref().unwrap()), 
-                Some(&commit.tree().unwrap()),
-                    None)
+            let diff = repository
+                .diff_tree_to_tree(
+                    Some(&parent.unwrap().tree().unwrap()),
+                    //Some(&p_tree.as_ref().unwrap()),
+                    Some(&commit.tree().unwrap()),
+                    None,
+                )
                 .expect("Failed to get diff");
-            let diff_stats = diff.stats()
-                .expect("Failed to get stats");
+            let diff_stats = diff.stats().expect("Failed to get stats");
 
             stats.total_files_changes += diff.deltas().count();
             stats.total_lines_inserted += diff_stats.insertions();
@@ -307,7 +307,6 @@ fn gather_stats(repository: Repository, app_args: &AppArgs) -> RepositoryStats {
                 }
                 current_streak = 0;
                 prev_commit_time = commit_time;
-                
             }
         }
 
@@ -341,8 +340,7 @@ fn gather_stats(repository: Repository, app_args: &AppArgs) -> RepositoryStats {
         }
     }
 
-
-    return stats;
+    stats
 }
 
 fn print_general_overview(stats: &RepositoryStats) {
@@ -351,7 +349,7 @@ fn print_general_overview(stats: &RepositoryStats) {
     println!("-------------------------------------");
     println!("Overall commit stats:");
     println!("Commit amount ......... {}", stats.commit_count);
-    println!("Last commit ........... {}" , dt.format("%d-%m-%Y %H:%M:%S"));
+    println!("Last commit ........... {}", dt.format("%d-%m-%Y %H:%M:%S"));
     println!("Contributor amount .... {}", stats.contributors.len());
     println!("-------------------------------------");
 }
@@ -361,28 +359,34 @@ fn print_extended_overview(stats: &RepositoryStats) {
     println!("-------------------------------------");
     println!("Overall commit stats:");
     println!("Commit amount ......... {}", stats.commit_count);
-    println!("Last commit ........... {}" , dt.format("%d-%m-%Y %H:%M:%S"));
+    println!("Last commit ........... {}", dt.format("%d-%m-%Y %H:%M:%S"));
     println!("Contributor amount .... {}", stats.contributors.len());
     println!("Files changed ......... {}", stats.total_files_changes);
     println!("Lines inserted......... {}", stats.total_lines_inserted);
     println!("Lines removed ......... {}", stats.total_lines_removed);
-    println!("Total lines (delta) ... {}", stats.total_lines_inserted - stats.total_lines_removed);
-    println!("Add./Del. ratio........ {:.2}", stats.total_lines_inserted as f64 / stats.total_lines_removed as f64);
+    println!(
+        "Total lines (delta) ... {}",
+        stats.total_lines_inserted - stats.total_lines_removed
+    );
+    println!(
+        "Add./Del. ratio........ {:.2}",
+        stats.total_lines_inserted as f64 / stats.total_lines_removed as f64
+    );
     println!("-------------------------------------");
 }
 
 fn print_pie_chart(stats: &RepositoryStats) {
     const NAMED_COMMITS_IN_CHART: usize = 5;
-    const SYMBOLS: [char; 6] = [ '•', '▪', '▴', '◆', '⬟', '◆' ];
+    const SYMBOLS: [char; 6] = ['•', '▪', '▴', '◆', '⬟', '◆'];
     println!("Commit pie chart:");
 
     let colors = [
-        Color::RGB(255, 99, 132),   // Red
-        Color::RGB(54, 162, 235),   // Blue
-        Color::RGB(255, 206, 86),   // Yellow
-        Color::RGB(75, 192, 192),   // Teal
-        Color::RGB(153, 102, 255),  // Purple
-        Color::RGB(255, 159, 64),   // Orange
+        Color::RGB(255, 99, 132),  // Red
+        Color::RGB(54, 162, 235),  // Blue
+        Color::RGB(255, 206, 86),  // Yellow
+        Color::RGB(75, 192, 192),  // Teal
+        Color::RGB(153, 102, 255), // Purple
+        Color::RGB(255, 159, 64),  // Orange
     ];
 
     // Sort descending by commit amount
@@ -419,27 +423,44 @@ fn print_pie_chart(stats: &RepositoryStats) {
         .aspect_ratio(3)
         .legend(true)
         .draw(&top_data);
-    
-
-
-
 }
 
 fn print_commit_checker_board(stats: &RepositoryStats) {
-    let distribution= calculate_symbol_distribution(&stats);
+    let distribution = calculate_symbol_distribution(stats);
 
     println!("╔═══════════════════════════════════════════════════════════════════════════════════════════════════════════════");
     println!("║\tCommits in the last year: {} | Longest Streak: {} days | Current Streak: {} days | Max a day: {}"
         , stats.commits_last_year, stats.longest_commit_streak, stats.current_commit_streak, stats.max_commits_a_day);
     println!("╠═══════════════════════════════════════════════════════════════════════════════════════════════════════════════");
     println!("║      Jan      Feb      Mar      Apr      May      Jun      Jul      Aug      Sep      Oct      Nov     Dec");
-    println!("║ Mon\t{}", calculate_day_commit_graph(&stats, chrono::Weekday::Mon, &distribution));
-    println!("║ Tue\t{}", calculate_day_commit_graph(&stats, chrono::Weekday::Tue, &distribution));
-    println!("║ Wed\t{}", calculate_day_commit_graph(&stats, chrono::Weekday::Wed, &distribution));
-    println!("║ Thu\t{}", calculate_day_commit_graph(&stats, chrono::Weekday::Thu, &distribution));
-    println!("║ Fri\t{}", calculate_day_commit_graph(&stats, chrono::Weekday::Fri, &distribution));
-    println!("║ Sat\t{}", calculate_day_commit_graph(&stats, chrono::Weekday::Sat, &distribution));
-    println!("║ Sun\t{}", calculate_day_commit_graph(&stats, chrono::Weekday::Sun, &distribution));
+    println!(
+        "║ Mon\t{}",
+        calculate_day_commit_graph(stats, chrono::Weekday::Mon, &distribution)
+    );
+    println!(
+        "║ Tue\t{}",
+        calculate_day_commit_graph(stats, chrono::Weekday::Tue, &distribution)
+    );
+    println!(
+        "║ Wed\t{}",
+        calculate_day_commit_graph(stats, chrono::Weekday::Wed, &distribution)
+    );
+    println!(
+        "║ Thu\t{}",
+        calculate_day_commit_graph(stats, chrono::Weekday::Thu, &distribution)
+    );
+    println!(
+        "║ Fri\t{}",
+        calculate_day_commit_graph(stats, chrono::Weekday::Fri, &distribution)
+    );
+    println!(
+        "║ Sat\t{}",
+        calculate_day_commit_graph(stats, chrono::Weekday::Sat, &distribution)
+    );
+    println!(
+        "║ Sun\t{}",
+        calculate_day_commit_graph(stats, chrono::Weekday::Sun, &distribution)
+    );
     println!("╚═══════════════════════════════════════════════════════════════════════════════════════════════════════════════");
 }
 
@@ -450,8 +471,9 @@ fn print_weekday_stats(stats: &RepositoryStats) {
     println!("-------------------------------------");
     println!("Commits per weekday:");
     for i in 0..7 {
-       let percentage = (stats.commits_per_weekday[i] as f64 / *max_commits as f64 * 20.0) as usize;
-       let weekday = match i {
+        let percentage =
+            (stats.commits_per_weekday[i] as f64 / *max_commits as f64 * 20.0) as usize;
+        let weekday = match i {
             0 => "Mon",
             1 => "Tue",
             2 => "Wed",
@@ -461,12 +483,17 @@ fn print_weekday_stats(stats: &RepositoryStats) {
             6 => "Sun",
             _ => "???", // Should/Can never happen
         };
-        println!("\t{}\t{}\t|{}", weekday, stats.commits_per_weekday[i], "█".repeat(percentage));
+        println!(
+            "\t{}\t{}\t|{}",
+            weekday,
+            stats.commits_per_weekday[i],
+            "█".repeat(percentage)
+        );
     }
 }
 
 /// Calculates the distribution borders for the commit checker board
-fn calculate_symbol_distribution(stats: &RepositoryStats) -> [usize; CHECKERBOARD_SYMBOL_AMOUNT]  {
+fn calculate_symbol_distribution(stats: &RepositoryStats) -> [usize; CHECKERBOARD_SYMBOL_AMOUNT] {
     // Get the max commits a day
     let mut max_commits_a_day = 0;
     for commits in stats.commits_per_day_last_year.iter() {
@@ -484,7 +511,6 @@ fn calculate_symbol_distribution(stats: &RepositoryStats) -> [usize; CHECKERBOAR
 
     let distribution = [0, low, more, even_more, a_lot];
 
-
     // Print distribution
     println!("-------------------------------------");
     print!("Distribution: ");
@@ -492,17 +518,21 @@ fn calculate_symbol_distribution(stats: &RepositoryStats) -> [usize; CHECKERBOAR
     for i in 1..distribution.len() - 1 {
         print!("{} for <= {}, ", SYMBOLS[i], distribution[i]);
     }
-    println!("{} for > {}", SYMBOLS[distribution.len() - 1], distribution[distribution.len() - 1]);
+    println!(
+        "{} for > {}",
+        SYMBOLS[distribution.len() - 1],
+        distribution[distribution.len() - 1]
+    );
     println!();
 
-    return distribution;
+    distribution
 }
 
 fn calculate_day_commit_graph(
-        stats: &RepositoryStats,
-        weekday: chrono::Weekday,
-        symbol_distr: &[usize; CHECKERBOARD_SYMBOL_AMOUNT]) -> String {
-
+    stats: &RepositoryStats,
+    weekday: chrono::Weekday,
+    symbol_dist: &[usize; CHECKERBOARD_SYMBOL_AMOUNT],
+) -> String {
     let today = Local::now();
 
     let mut num_of_weekdays = 0;
@@ -524,19 +554,19 @@ fn calculate_day_commit_graph(
 
         // Get symbol for this day
         let mut symbol = ' ';
-        for j in 0..symbol_distr.len() {
-            if commits_on_day <= symbol_distr[j] {
+        for j in 0..symbol_dist.len() {
+            if commits_on_day <= symbol_dist[j] {
                 symbol = SYMBOLS[j];
                 break;
             }
         }
         if symbol == ' ' {
-            // If no symbol was found, use the last one (as it then is > symbol_distr[CHECKERBOARD_SYMBOL_AMOUNT - 1])
+            // If no symbol was found, use the last one (as it then is > symbol_dist[CHECKERBOARD_SYMBOL_AMOUNT - 1])
             symbol = SYMBOLS[SYMBOLS.len() - 1];
         }
 
         graph_line.push(' ');
         graph_line.push(symbol);
     }
-    return graph_line;
+    graph_line
 }
