@@ -72,7 +72,8 @@ struct RepositoryStats {
 }
 
 fn main() {
-    println!("Hello, world!");
+    println!("Welcome to Repolyzer!");
+    println!("Performing analysis...");
 
     let app_args: AppArgs = parse_args();
     let repository: Repository = load_repository(&app_args.location);
