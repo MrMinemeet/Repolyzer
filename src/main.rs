@@ -6,6 +6,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use std::{path::PathBuf, process::exit};
 use url::Url;
 
+use std::sync::{Arc, Mutex};
+use std::thread::{self, JoinHandle};
+
 // ------------------------- Constants
 const HELP: &str = "Usage: repolyzer [OPTIONS] <PATH>
 
@@ -49,6 +52,7 @@ struct AppArgs {
     weekday_stats: bool,
 }
 
+#[derive(Clone)]
 struct RepositoryStats {
     // General stats
     commit_count: usize,
@@ -207,12 +211,10 @@ fn gather_stats(repository: Repository, app_args: &AppArgs) -> RepositoryStats {
     diff_options.ignore_submodules(true);
     diff_options.ignore_blank_lines(true);
 
-    let current_time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_secs();
 
-    let mut stats = RepositoryStats {
+
+    // Create global data
+    let global_data = Arc::new(Mutex::new(RepositoryStats {
         commit_count: 0,
         last_commit: 0,
         contributors: HashMap::new(),
@@ -228,14 +230,51 @@ fn gather_stats(repository: Repository, app_args: &AppArgs) -> RepositoryStats {
         commits_per_day_last_year: [0; 365],
 
         commits_per_weekday: [0; 7],
-    };
+    }));
+    let global_data_clone = Arc::clone(&global_data);
 
-    let mut prev_commit_time: u64 = 0;
-    let mut current_streak: usize = 0;
 
+    // Prepare revwalk
     let mut revwalk = repository.revwalk().expect("Failed to get 'revwalk'");
     revwalk.push_head().expect("Failed to push HEAD!");
 
+    let curr_time = SystemTime::now();
+    let mut commits: Vec<git2::Commit> = Vec::new();
+    for commit_id in revwalk {
+        let commit_id = commit_id.expect("Failed to get commit ID");
+        let commit = repository.find_commit(commit_id).expect("Could not find commit");
+        commits.push(commit);
+    }
+    let commit_count = commits.len();
+    println!(
+        "Time: {:?} for adding {} commits to the TODO:",
+        curr_time.elapsed().unwrap(),
+        commits.len()
+    );
+
+    // Start threads
+    let handles: Vec<JoinHandle<_>> = commits
+        .into_iter()
+        .map(|commit| {
+            let global_data_clone = Arc::clone(&global_data_clone);
+
+            // Spawn thread
+            thread::spawn(move || {
+                let contributors = HashMap::<String, u64>::new();
+                {
+                    let author = commit.author();
+                    let author = author.name();
+                }
+            })
+        })
+        .collect();
+
+    // Wait for threads to finish
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    /*
     // Loop over all commit_ids with the help of revwalk
     for commit_id in revwalk {
         let commit_id = commit_id.expect("Failed to get commit ID");
@@ -317,7 +356,6 @@ fn gather_stats(repository: Repository, app_args: &AppArgs) -> RepositoryStats {
             stats.commits_per_weekday[weekday.num_days_from_monday() as usize] += 1;
         }
     }
-
     if app_args.commit_graph {
         // Calculate max commits a day
         stats.max_commits_a_day = *stats.commits_per_day_last_year.iter().max().unwrap();
@@ -341,10 +379,17 @@ fn gather_stats(repository: Repository, app_args: &AppArgs) -> RepositoryStats {
         }
     }
 
+    */
+
+
+    global_data.lock().unwrap().commit_count = commit_count;
+
     // Clean up data
     temp_dir_cleanup(repository, &app_args.location);
 
-    stats
+    // Return stats
+    let final_stats = global_data.lock().unwrap().clone();
+    final_stats
 }
 
 fn print_general_overview(stats: &RepositoryStats) {
