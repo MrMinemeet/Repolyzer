@@ -27,3 +27,9 @@ PATH:
     The path to the Git repository to analyze. This can be a local path or a remote URL.
     If a remote URL is provided, the repository will be cloned to a temporary directory.
 ```
+
+## Note
+This project is/was only tested on my local machine and may not work as intended on other systems.
+
+---
+*DISCLAIMER: This is a project for a university course. It is not intended to be used in production and may contain bugs or security vulnerabilities.*
