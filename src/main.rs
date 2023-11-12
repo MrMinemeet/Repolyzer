@@ -340,6 +340,9 @@ fn gather_stats(repository: Repository, app_args: &AppArgs) -> RepositoryStats {
         }
     }
 
+    // Clean up data
+    temp_dir_cleanup(repository, &app_args.location);
+
     stats
 }
 
@@ -569,4 +572,12 @@ fn calculate_day_commit_graph(
         graph_line.push(symbol);
     }
     graph_line
+}
+
+/// Cleans up the temporary directory if the repository was cloned
+fn temp_dir_cleanup(repository: Repository, location: &GitLocation) {
+    if let GitLocation::Remote(_) = location {
+        let path = repository.path().parent().unwrap();
+        std::fs::remove_dir_all(path).expect("Failed to remove temporary directory!");
+    }
 }
